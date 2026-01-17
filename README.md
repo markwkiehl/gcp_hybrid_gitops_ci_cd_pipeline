@@ -1,3 +1,6 @@
+(This repository is a template for creating and deploying projects to the Google Cloud.  See gcp/README.md)
+(This file is intended to be edited by the user and serve as a reference and description of the Python project created from this template)
+
 # Project Name
 
 Short, clear description of what the project does and who it’s for.

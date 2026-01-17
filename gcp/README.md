@@ -27,6 +27,7 @@ C:\Documents\..\projects\py_project\
 │
 └── src\						← Python source code folder.
     └── mcp_fastapi_server.py	← Python script to deploy to Google Cloud Run (filename may change).
+    └── mcp_fastapi_client.py		← Python client script that tests access to the Model Context Protocol (MCP) Server (mcp_fastapi_server.py).
     └── .env					← File must exist, but can be empty. Any API Keys will be injected into the container as environment variables.
 │
 └── data\						← Read-only static data files available in the container to the app when deployed.
@@ -97,7 +98,7 @@ Two service accounts are created specifically for the project:
 
 - Open up a Windows command prompt / terminal window.
 - Navigate to the parent folder that holds your Python projects ('projects' in the diagram below).
-- Execute `git clone https://github.com/your-username/your-template-repo.git py_project` where "py_project" is the folder name for your new Python project.
+- Execute `git clone https://github.com/markwkiehl/gcp_hybrid_gitops_ci_cd_pipeline.git py_project` where "py_project" is the folder name for your new Python project.
 - The folder contents and structure should look like what you see belo. 
 
 D:\Documents\..\projects\py_project\
