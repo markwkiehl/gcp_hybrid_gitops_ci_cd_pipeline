@@ -1,0 +1,6 @@
+google-cloud-storage
+google-cloud-run
+python-dotenv
+rich
+fastapi
+uvicorn

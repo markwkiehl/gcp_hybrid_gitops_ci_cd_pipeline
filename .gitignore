@@ -1,0 +1,44 @@
+*.png
+*.odp
+*.log
+*.tmp
+*.bak
+savvy_secretes.py
+*.env
+images/
+assets/
+
+# Python virtual environments (keep these OUT of Git)
+venv/
+.venv/
+
+# Python bytecode and cache folders
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VS Code and other IDE settings
+.vscode/
+.idea/
+
+
+# Distribution and build artifacts
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Exclude any temporary backups created by text editors
+*~
+
+# Google Cloud / Service Files
+*.gcloudignore
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Ignore Terraform state and binaries
+.terraform/
+terraform.tfstate*

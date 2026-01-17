@@ -1,0 +1,17 @@
+.env
+
+# Ignore virtual environments
+.venv
+.venv/
+
+# Ignore Python cache files
+__pycache__
+
+.git
+.ipynb_checkpoints
+
+
+.terraform/
+terraform.tfstate*
+
+gcp/
