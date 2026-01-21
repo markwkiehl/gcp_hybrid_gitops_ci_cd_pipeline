@@ -8,7 +8,7 @@
 # when Git or other versioning systems are not employed.
 __version__ = "0.0.1"
 # v0.0.0    14 Jan 2026
-# v0.0.1    Removed [cite: *] that AI added during audit. 
+# v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 
 import os
 from pathlib import Path
@@ -211,6 +211,8 @@ def generate_files():
     path_file_py_script_for_cloud_run = PATH_SRC.joinpath(c['PYTHON_FILENAME'])
     if not path_file_py_script_for_cloud_run.is_file(): 
         print(f"The Python script specified for 'PYTHON_FILENAME' in 'gcp_constants.txt' doesn't exist in the folder /src")
+    # Use a string representing the internal container path instead of the Windows Path object for purposes of the Dockerfile
+    path_file_py_script_for_cloud_run = f"src/{c['PYTHON_FILENAME']}"
     path_file_dockerfile = PATH_BASE.joinpath("Dockerfile")
     # Write the Dockerfile
     if not generate_dockerfile(path_file_dockerfile, path_file_py_script_for_cloud_run):
