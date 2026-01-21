@@ -6,9 +6,9 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.0"
+__version__ = "0.0.1"
 # v0.0.0    14 Jan 2026
-
+# v0.0.1    Removed [cite: *] that AI added during audit. 
 
 import os
 from pathlib import Path
@@ -86,18 +86,18 @@ ENV PIP_DEFAULT_TIMEOUT=100 \\
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Expose port 8080 for both Flask and Gunicorn server 
-EXPOSE 8080 [cite: 3]
+EXPOSE 8080
 
-# If app is FastAPI, use Uvicorn. [cite: 4]
-# It’s faster, lighter, and Cloud Run handles scaling. [cite: 4]
-# If app is (Flask, Django WSGI): Use Gunicorn (pure WSGI). [cite: 5]
-# For Gunicorn: [cite: 5]
-# Use ENTRYPOINT to definitively launch Gunicorn with Uvicorn workers. [cite: 6]
-# This ensures the command is executed as the primary process. [cite: 6]
-# Cloud Run expects your application to listen on the port specified by the PORT environment variable. [cite: 7]
-# Use 0.0.0.0 to bind to all available network interfaces. [cite: 8]
+# If app is FastAPI, use Uvicorn.
+# It’s faster, lighter, and Cloud Run handles scaling. 
+# If app is (Flask, Django WSGI): Use Gunicorn (pure WSGI). 
+# For Gunicorn: 
+# Use ENTRYPOINT to definitively launch Gunicorn with Uvicorn workers. 
+# This ensures the command is executed as the primary process. 
+# Cloud Run expects your application to listen on the port specified by the PORT environment variable. 
+# Use 0.0.0.0 to bind to all available network interfaces.
 
-# IMPORTANT: The container must read the $PORT variable and bind its server to it. [cite: 12]
+# IMPORTANT: The container must read the $PORT variable and bind its server to it. 
 # Using the shell form of CMD to allow environment variable expansion. 
 CMD uvicorn {path_file_py_script_for_cloud_run} --host 0.0.0.0 --port $PORT 
 """
