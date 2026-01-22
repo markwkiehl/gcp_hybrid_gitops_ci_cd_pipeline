@@ -6,9 +6,10 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
+# v0.0.2    Several minor optimizations to gcp_bootstrap.bat
 
 import os
 from pathlib import Path
@@ -113,7 +114,8 @@ EXPOSE 8080
 
 # IMPORTANT: The container must read the $PORT variable and bind its server to it. 
 # Using the shell form of CMD to allow environment variable expansion. 
-CMD streamlit run {path_file_py_script_for_cloud_run} --server.address 0.0.0.0 --server.port $PORT\n
+# Added --server.enableXsrfProtection false because Cloud Run already terminates connections safely.  This removes overhead on every interaction.
+CMD streamlit run {path_file_py_script_for_cloud_run} --server.address 0.0.0.0 --server.port $PORT --server.enableXsrfProtection false\n
 """
 
     try:
@@ -310,9 +312,9 @@ steps:
           --platform managed \\
           --allow-unauthenticated \\
           --min-instances=1 \\
-          --concurrency=2 \\
-          --cpu=1 \\
-          --memory=1Gi \\
+          --concurrency=1 \\
+          --cpu=2 \\
+          --memory=2Gi \\
           --no-cpu-throttling \\
           
 substitutions:
@@ -338,10 +340,10 @@ options:
         f.write(f'''@echo off
 echo Bootstrapping Project: {c['GCP_PROJ_ID']}
 
-rem --- VERSION CHECK ---
+rem GCP_PROJ_ID check
 CALL gcloud projects describe {c['GCP_PROJ_ID']} >nul 2>&1
 IF %ERRORLEVEL% EQU 0 (
-    echo WARNING: Project {c['GCP_PROJ_ID']} already exists!
+    echo WARNING: Project {c['GCP_PROJ_ID']} already exists!  CTRL-C to abort
     pause
 )
 
@@ -352,6 +354,8 @@ if NOT EXIST "{PATH_SRC}\.env" (
 )
 
 :: Update local gcloud components (if needed).
+echo.
+echo Checking if gcloud components need to be updated..
 CALL gcloud components update --quiet
 
 :: Only need to do the following once per project.
@@ -364,7 +368,12 @@ if NOT EXIST "{PATH_GCP}\gcp_bootstrap.bat" (
 )
 
 :: PROJECT CREATION
+echo.
 CALL gcloud projects create {c['GCP_PROJ_ID']}
+IF %ERRORLEVEL% NEQ 0 (
+    echo The Google project {c['GCP_PROJ_ID']} could not be created, or it already exists.  CTRL-C to abort.
+    pause
+)
 
 :: IDENTITY SETUP
 :: Note: 'gcloud auth login' is for the CLI. 
@@ -483,6 +492,10 @@ echo - Run: gcloud builds submit --config cloudbuild.yaml --project={c['GCP_PROJ
 CALL terraform init
 CALL terraform apply -auto-approve
 CALL gcloud builds submit --config cloudbuild.yaml --project={c['GCP_PROJ_ID']} .
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERRORLEVEL: %ERRORLEVEL%:
+    pause
+)
 
 echo Waiting 30 more seconds...
 timeout /t 30 /nobreak
@@ -490,11 +503,18 @@ timeout /t 30 /nobreak
 :: Grant Cloud Run Invoker role so external users can access the Cloud Run service via the URL (must execute AFTER the Cloud Run service is created)
 :: IMPORTANT: To only allow a Google API Gateway access, use:  --member="serviceAccount:YOUR-GATEWAY-SA@PROJECT_ID.iam.gserviceaccount.com"
 CALL gcloud run services add-iam-policy-binding {c['GCP_RUN_JOB']} --member="allUsers" --role=roles/run.invoker --project={c['GCP_PROJ_ID']} --region={c['GCP_REGION']}
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERRORLEVEL: %ERRORLEVEL%:
+    pause
+)
 
 :: Grant Storage Object Admin role for the bucket (must be done after the bucket is created)
 CALL gcloud storage buckets add-iam-policy-binding gs://{c['GCP_GS_BUCKET']} --project={c['GCP_PROJ_ID']} --member=serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com --role=roles/storage.objectAdmin
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERRORLEVEL: %ERRORLEVEL%:
+    pause
+)
 
-pause
 :: Show the Cloud Run logs
 CALL gcloud run services logs read {c['GCP_RUN_JOB']} --region={c['GCP_REGION']} --project={c['GCP_PROJ_ID']}
 
