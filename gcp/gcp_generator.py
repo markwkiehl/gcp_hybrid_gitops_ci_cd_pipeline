@@ -6,10 +6,11 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 # v0.0.2    Several minor optimizations to gcp_bootstrap.bat
+# v0.0.3    Added command gcloud config set project noaa-v0-4
 
 import os
 from pathlib import Path
@@ -365,6 +366,16 @@ if NOT EXIST "{PATH_GCP}\gcp_bootstrap.bat" (
 
   :: Sets the identity for Terraform to use.  (user-based ADC)
   CALL gcloud auth application-default login
+)
+
+:: Switch the active Google Cloud Command Line Interface (CLI) project to GCP_PROJ_ID
+echo.
+echo Switching the active Google Cloud Command Line Interface (CLI) project to {c['GCP_PROJ_ID']}.  
+echo Ignore any messages about: 'environment' tag
+CALL gcloud config set project {c['GCP_PROJ_ID']}
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERROR trying to switch the active Google CLI project to {c['GCP_PROJ_ID']}.  
+    EXIT /B
 )
 
 :: PROJECT CREATION
