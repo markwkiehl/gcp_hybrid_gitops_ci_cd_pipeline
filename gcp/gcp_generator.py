@@ -6,11 +6,14 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.3"
+__version__ = "0.0.6"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 # v0.0.2    Several minor optimizations to gcp_bootstrap.bat
-# v0.0.3    Added command gcloud config set project noaa-v0-4
+# v0.0.3    Added command gcloud config set project
+# v0.0.4    Revised generate_dockerfile() for non-Streamlit app.  Added BigQuery CLI install if needed.
+# v0.0.5    Added service account (SA) permissions for read/metadata access to BigQuery.
+# v0.0.6    Added check that project GCP_BQ_PROJ_ID exists. 
 
 import os
 from pathlib import Path
@@ -48,10 +51,15 @@ def get_app_version(file_path: Path):
         return "error"
     
 
-def generate_dockerfile(path_file_dockerfile:Path, path_file_py_script_for_cloud_run:Path):
+def generate_dockerfile(path_file_dockerfile:Path, path_file_py_script_for_cloud_run:str):
     """
     Generates a Dockerfile and specifies 'path_file_py_script_for_cloud_run' at the end for the CMD command.
     """
+
+    # Get just the Python filename (no filename extension) from path_file_py_script_for_cloud_run
+    filename_only = path_file_py_script_for_cloud_run.split("/")[-1].strip()
+    filename_only = filename_only.split(".")[0].strip()
+    #print(f"filename_only: '{filename_only}'")
 
     # Delete the Dockerfile if it already exists (makes sure it can be overwritten later).
     if path_file_dockerfile.is_file(): 
@@ -115,8 +123,13 @@ EXPOSE 8080
 
 # IMPORTANT: The container must read the $PORT variable and bind its server to it. 
 # Using the shell form of CMD to allow environment variable expansion. 
+
+# Below is only for a streamlit app
 # Added --server.enableXsrfProtection false because Cloud Run already terminates connections safely.  This removes overhead on every interaction.
-CMD streamlit run {path_file_py_script_for_cloud_run} --server.address 0.0.0.0 --server.port $PORT --server.enableXsrfProtection false\n
+#CMD streamlit run {path_file_py_script_for_cloud_run} --server.address 0.0.0.0 --server.port $PORT --server.enableXsrfProtection false\n
+
+# Below is for uvicorn
+CMD uvicorn src.{filename_only}:app --host 0.0.0.0 --port $PORT\n
 """
 
     try:
@@ -344,9 +357,19 @@ echo Bootstrapping Project: {c['GCP_PROJ_ID']}
 rem GCP_PROJ_ID check
 CALL gcloud projects describe {c['GCP_PROJ_ID']} >nul 2>&1
 IF %ERRORLEVEL% EQU 0 (
-    echo WARNING: Project {c['GCP_PROJ_ID']} already exists!  CTRL-C to abort
+    echo WARNING: Project {c['GCP_PROJ_ID']} already exists!
+    echo This is okay if it is a repeat execution of gcp_bootstrap.bat  CTRL-C to abort
     pause
 )
+
+:: Verify that Project ID GCP_BQ_PROJ_ID exists.
+CALL gcloud projects describe {c['GCP_BQ_PROJ_ID']} >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERROR: The project {c['GCP_BQ_PROJ_ID']} for BigQuery specified by GCP_BQ_PROJ_ID in gcp_constants.txt does NOT exist!
+    echo If you don't need BigQuery or you want to create a BigQuery dataset under project {c['GCP_PROJ_ID']}, then use GCP_BQ_PROJ_ID={c['GCP_PROJ_ID']}
+    EXIT /B
+)
+
 
 :: Make sure the .env file exists
 if NOT EXIST "{PATH_SRC}\.env" (
@@ -382,7 +405,7 @@ IF %ERRORLEVEL% NEQ 0 (
 echo.
 CALL gcloud projects create {c['GCP_PROJ_ID']}
 IF %ERRORLEVEL% NEQ 0 (
-    echo The Google project {c['GCP_PROJ_ID']} could not be created, or it already exists.  CTRL-C to abort.
+    echo The Google project {c['GCP_PROJ_ID']} could not be created, or it already exists.
     pause
 )
 
@@ -433,6 +456,22 @@ echo.
 echo Waiting 60 seconds for API and IAM propagation...
 timeout /t 60 /nobreak
 
+
+:: Verify BigQuery CLI is installed.  Install if needed.
+echo.
+echo Verifying BigQuery CLI (bq) is installed (ignore any reported errors here).
+CALL bq version
+IF %ERRORLEVEL% NEQ 0 (
+	CALL gcloud components install bq --quiet
+)
+:: ERRORLEVEL=1 even after successful install.  Use bq version to check installation.
+CALL bq version
+IF %ERRORLEVEL% NEQ 0 (
+	echo ERROR: install of BigQuery CLI failed.   
+	EXIT /B
+)
+
+
 echo Granting Permissions to Service Account...
 @echo on
 
@@ -471,9 +510,43 @@ IF %ERRORLEVEL% NEQ 0 (
     EXIT /B
 )
 
+:: Grant the SA permission to READ BigQuery data via GCP_BQ_PROJ_ID
+CALL gcloud projects add-iam-policy-binding {c['GCP_PROJ_ID']} --member=serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com --role=roles/bigquery.dataViewer
+IF %ERRORLEVEL% NEQ 0 (
+    echo %ERRORLEVEL%
+    EXIT /B
+)
+
+:: Grant the SA permission to BigQuery metadata GCP_BQ_PROJ_ID
+CALL gcloud projects add-iam-policy-binding {c['GCP_PROJ_ID']} --member=serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com --role=roles/bigquery.metadataViewer
+IF %ERRORLEVEL% NEQ 0 (
+    echo %ERRORLEVEL%
+    EXIT /B
+)
+
+:: Grant the SA permission to BigQuery jobs
+CALL gcloud projects add-iam-policy-binding {c['GCP_PROJ_ID']} --member=serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com --role=roles/bigquery.jobUser
+IF %ERRORLEVEL% NEQ 0 (
+    echo %ERRORLEVEL%
+    EXIT /B
+)
+
+:: Grant the specific cross-project permissions required for the Cloud Run service in mcp-noaa-v#-# to query data in bq-noaa-v0-0.
+:: The service account must be granted access inside the BigQuery data project (bq-noaa-v0-0) so it can read the tables and run query jobs there.
+CALL gcloud projects add-iam-policy-binding {c['GCP_BQ_PROJ_ID']} --member=serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com --role=roles/bigquery.jobUser
+IF %ERRORLEVEL% NEQ 0 (
+    echo %ERRORLEVEL%
+    EXIT /B
+)
+CALL gcloud projects add-iam-policy-binding {c['GCP_BQ_PROJ_ID']} --member=serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com --role=roles/bigquery.dataViewer
+IF %ERRORLEVEL% NEQ 0 (
+    echo %ERRORLEVEL%
+    EXIT /B
+)
+
 @echo off
 
-echo Deleting Artifact Registry repository: {c['GCP_REPOSITORY']} in {c['GCP_REGION']}...
+echo Deleting Artifact Registry repository: {c['GCP_REPOSITORY']} in {c['GCP_REGION']} - only exists if first time execution...
 CALL gcloud artifacts repositories delete {c['GCP_REPOSITORY']} --location={c['GCP_REGION']} --project={c['GCP_PROJ_ID']} --quiet
 IF %ERRORLEVEL% EQU 0 (
     echo Registry deleted successfully.
@@ -504,7 +577,10 @@ CALL terraform init
 CALL terraform apply -auto-approve
 CALL gcloud builds submit --config cloudbuild.yaml --project={c['GCP_PROJ_ID']} .
 IF %ERRORLEVEL% NEQ 0 (
-    echo ERRORLEVEL: %ERRORLEVEL%:
+    echo Use this command to see the Cloud Build Log:
+    echo gcloud builds log BUILD_ID --project={c['GCP_PROJ_ID']}
+    echo Use this command to see the Container Logs:
+    echo gcloud run services logs read {c['GCP_RUN_JOB']} --region={c['GCP_REGION']} --limit=100
     pause
 )
 

@@ -99,7 +99,7 @@ Two service accounts are created specifically for the project:
 - Open up a Windows command prompt / terminal window.
 - Navigate to the parent folder that holds your Python projects ('projects' in the diagram below).
 - Execute `git clone https://github.com/markwkiehl/gcp_hybrid_gitops_ci_cd_pipeline.git py_project` where "py_project" is the folder name for your new Python project.
-- The folder contents and structure should look like what you see belo. 
+- The folder contents and structure should look like what you see below. 
 
 D:\Documents\..\projects\py_project\
 │   README.md						← Information about the project.
