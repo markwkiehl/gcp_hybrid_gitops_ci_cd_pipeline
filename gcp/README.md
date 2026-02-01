@@ -103,23 +103,24 @@ Two service accounts are created specifically for the project:
 - The folder contents and structure should look like what you see below. 
 
 D:\Documents\..\projects\py_project\
-│   README.md						← Information about the project.
+│   README.md                        ← Information about the project.
 │   .dockerignore
-│   .gcloudignore					← Critical for managing the size of the upload to Google Cloud (.dockerignore is not enough).
+│   .gcloudignore                    ← Critical for managing upload size to Google Cloud.
 │
-└── src\							← Python source code folder.
-    └── mcp_fastapi_server.py		← The Python script to deploy to Google Cloud Run. MUST specify in gcp_constant.txt under PYTHON_FILENAME.
-    └── .env						← File must exist, but can be empty. Any API Keys will be injected into the container as environment variables.
+├── src\                             ← Python source code folder.
+│   └── mcp_fastapi_server.py        ← Script to deploy. MUST specify in gcp_constant.txt.
+│   └── .env                         ← File must exist (can be empty).
 │
-└── data\							← Read-only static data files available in the container to the app when deployed.
+├── data\                            ← Read-only static data files.
 │
-└── gcp\							← Setup, configuration, and deployment related files. 
-    └── gcp_constants.txt			← Names for the various Google Cloud items to create and configure (user, project, billing, region, etc.)
-    └── pip_install.txt				← Python libraries to "pip install" by the batch file "make_py_venv.bat".
-    └── make_py_venv.bat			← Batch file to create a Python virtual environment with the libraries installed from the list in "pip_install.txt".
-    └── gcp_generator.py			← Python script that reads the constants from "gcp_constants.txt" and writes "main.tf", "cloudbuild.yaml", "gcp_bootstrap.bat", and "requirements.txt".
-    └── gcp_cleanup.bat				← Batch file to delete the Google Cloud project and all associated resources. 
-    └── README.md					← This file.
+└── gcp\                             ← Setup, configuration, and deployment files. 
+    └── gcp_constants.txt            ← Google Cloud Platform (GCP) configuration names.
+    └── pip_install.txt              ← Libraries for the Virtual Environment (VENV).
+    └── make_py_venv.bat             ← Batch file to create the VENV.
+    └── gcp_generator.py             ← Script to generate Terraform (TF) and build files.
+    └── gcp_cleanup.bat              ← Batch file to delete the project.
+    └── README.md                    ← This file.
+	
 
 ### Create Python Virtual Environment
 Edit the file `/gcp/pip_install.txt` with all anticipated "pip install" requirements.
