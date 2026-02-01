@@ -50,6 +50,7 @@ This script's core functions include:
 - Dynamically generates main.tf, cloudbuild.yaml, gcp_bootstrap.bat, and Dockerfile based on versioned constants from "gcp_constants.txt".
 - Any contents of the /src/.env file are injected into the cloudbuild.yaml file and created as environment variables for the deployed Python script.  
 - Reads the manually constructed gcp/pip_install.txt and writes it to the root as requirements.txt to satisfy Docker's build context.
+- **IMPORTANT: Re-run this script everytime you make a change to the Python script deployed to insure the latest version is deployed.***
 
 ### The Deployment Pipeline (cloudbuild.yaml)
 The cloudbuild.yaml file is updated with values from gcp_constants.txt when the Python script `gcp_generator.py` is run. 

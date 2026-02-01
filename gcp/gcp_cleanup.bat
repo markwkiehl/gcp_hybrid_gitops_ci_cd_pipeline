@@ -1,9 +1,10 @@
 @echo off
 cls
-echo %~n0%~x0	version 0.0.0
+echo %~n0%~x0	version 0.0.1
 echo.
 
 rem v0.0.0	initial release
+rem v0.0.1  Added switching the active Google Cloud Command Line Interface (CLI) project to %GCP_PROJ_ID%.
 
 
 rem Created by Mechatronic Solutions LLC
@@ -115,6 +116,17 @@ echo Revise the variable "GCP_GS_BUCKET" in gcp_constants.txt
 echo.
 echo Press ENTER to continue, or CTRL-C to abort so you can edit this file '%~n0%~x0'.
 pause
+
+:: Switch the active Google Cloud Command Line Interface (CLI) project to GCP_PROJ_ID
+echo.
+echo Switching the active Google Cloud Command Line Interface (CLI) project to %GCP_PROJ_ID%.
+echo Ignore any messages about: 'environment' tag
+CALL gcloud config set project %GCP_PROJ_ID%
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERROR trying to switch the active Google CLI project to %GCP_PROJ_ID%.
+    EXIT /B
+)
+
 
 rem Show projects
 @echo on
