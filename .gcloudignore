@@ -1,0 +1,17 @@
+# Ignore python virtual environments
+.venv/
+__pycache__/
+
+# Ignore local environment variables
+.env
+
+# Ignore git and IDE metadata
+.git
+.ipynb_checkpoints
+
+# Ignore Terraform state and binaries
+.terraform/
+terraform.tfstate*
+
+# Ignore local GCP automation scripts not needed for the build
+gcp/

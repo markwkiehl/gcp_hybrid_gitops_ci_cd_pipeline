@@ -33,7 +33,7 @@ build/
 *~
 
 # Google Cloud / Service Files
-*.gcloudignore
+#*.gcloudignore
 
 # Operating System files
 .DS_Store
