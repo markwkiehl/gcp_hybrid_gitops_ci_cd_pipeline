@@ -6,7 +6,7 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 # v0.0.2    Several minor optimizations to gcp_bootstrap.bat
@@ -14,6 +14,7 @@ __version__ = "0.0.6"
 # v0.0.4    Revised generate_dockerfile() for non-Streamlit app.  Added BigQuery CLI install if needed.
 # v0.0.5    Added service account (SA) permissions for read/metadata access to BigQuery.
 # v0.0.6    Added check that project GCP_BQ_PROJ_ID exists. 
+# v0.0.7    Commented out the expensive gloud run deploy options (they give lots of performance, but expensive!)
 
 import os
 from pathlib import Path
@@ -325,11 +326,11 @@ steps:
           --set-env-vars "MOUNT_PATH=${{_MOUNT_PATH}},DEPLOYED_VERSION={current_version},{env_string}" \\
           --platform managed \\
           --allow-unauthenticated \\
-          --min-instances=1 \\
-          --concurrency=1 \\
-          --cpu=2 \\
-          --memory=2Gi \\
-          --no-cpu-throttling \\
+          #--min-instances=1 \\
+          #--concurrency=1 \\
+          #--cpu=2 \\
+          #--memory=2Gi \\
+          #--no-cpu-throttling \\
           
 substitutions:
   _REGION: {c['GCP_REGION']}
