@@ -39,6 +39,4 @@ build/
 .DS_Store
 Thumbs.db
 
-# Ignore Terraform state and binaries
-.terraform/
-terraform.tfstate*
+opencode.json
