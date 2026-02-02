@@ -6,7 +6,7 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 # v0.0.2    Several minor optimizations to gcp_bootstrap.bat
@@ -15,6 +15,7 @@ __version__ = "0.0.7"
 # v0.0.5    Added service account (SA) permissions for read/metadata access to BigQuery.
 # v0.0.6    Added check that project GCP_BQ_PROJ_ID exists. 
 # v0.0.7    Commented out the expensive gloud run deploy options (they give lots of performance, but expensive!)
+# v0.0.8    Moved check for GCP_BQ_PROJ_ID after GCP_PROJ_ID has been created.
 
 import os
 from pathlib import Path
@@ -363,14 +364,6 @@ IF %ERRORLEVEL% EQU 0 (
     pause
 )
 
-:: Verify that Project ID GCP_BQ_PROJ_ID exists.
-CALL gcloud projects describe {c['GCP_BQ_PROJ_ID']} >nul 2>&1
-IF %ERRORLEVEL% NEQ 0 (
-    echo ERROR: The project {c['GCP_BQ_PROJ_ID']} for BigQuery specified by GCP_BQ_PROJ_ID in gcp_constants.txt does NOT exist!
-    echo If you don't need BigQuery or you want to create a BigQuery dataset under project {c['GCP_PROJ_ID']}, then use GCP_BQ_PROJ_ID={c['GCP_PROJ_ID']}
-    EXIT /B
-)
-
 
 :: Make sure the .env file exists
 if NOT EXIST "{PATH_SRC}\.env" (
@@ -426,6 +419,13 @@ CALL gcloud config set project {c['GCP_PROJ_ID']}
 :: Tell Google which project to bill for Terraform's API calls.
 CALL gcloud auth application-default set-quota-project {c['GCP_PROJ_ID']}
 
+:: Verify that Project ID GCP_BQ_PROJ_ID exists.
+CALL gcloud projects describe {c['GCP_BQ_PROJ_ID']} >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERROR: The project {c['GCP_BQ_PROJ_ID']} for BigQuery specified by GCP_BQ_PROJ_ID in gcp_constants.txt does NOT exist!
+    echo If you don't need BigQuery or you want to create a BigQuery dataset under project {c['GCP_PROJ_ID']}, then use GCP_BQ_PROJ_ID={c['GCP_PROJ_ID']}
+    EXIT /B
+)
 
 echo Enabling Services...
 :: iam.googleapis.com 

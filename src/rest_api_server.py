@@ -7,7 +7,7 @@
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
 __version__ = "0.0.0"
-
+# v0.0.0    Release 2 February 2026
 
 
 """
@@ -15,46 +15,83 @@ This is a template for a RESTful API server deployed to Google Cloud Run service
 
 
 FastAPI is utilized to create the REST API server.
-
-This script will be packaged into a container and configured to run as a Cloud Run Job.
+This script will be packaged into a container and configured to run as a Cloud Run Service.
 A Cloud Storage volume mount is used to create a bridge between the Cloud Storage bucket
 and the Cloud Run container's file system.
 Volume mounts allow a container (this script) to access files stored in persistent disks or NFS shares as if they were local.
 The feature leverages Cloud Storage FUSE to provide this file system interface.  
-When a Cloud Run GCS mount is configured, the bucket name and munt path are explicitly specified.
+When a Cloud Run GCS mount is configured, the bucket name and mount path are explicitly specified.
+
+FastAPI is built on the OpenAPI (formerly Swagger) and JSON Schema standards, it generates interactive documentation automatically without you having to write any extra code.
+When the app is deployed to Google Cloud Run, these features will be available at specific sub-paths of the main URL.
+    Swagger UI (at /docs)
+    ReDoc (at /redoc)
 
 
+Lifecycle
+When Cloud Run starts a container for this app, uvicorn loads this script. Before it opens the door 
+to any traffic (including the /ready probe), it executes the code inside lifespan up to the yield statement.
+The lifecycle function executes with every instance of the app created by Cloud Run based on demand, so keep it short and fast. 
+Once the yield statement is executed in the lifespan function, the application fully runs and endpoints like /ready can be hit
+by traffic.  In the case of the /ready endpoint, this is used by Cloud Run during deployment to verify the Google Cloud Storage FUSE mount is loaded.  
+Every app instance must verify its own FUSE mount before it can safely accept traffic.
+Note that while the app is running (yield), Cloud Run pings the /ready endpoint every 10 seconds. 
 
-Overall architecture implemented for Cloud Run deployment:
-- The application requires access to persistent files, like the .env configuration, which are stored in a Google Cloud Storage (GCS) Bucket. 
-  Since GCS is object storage (not a file system), a bridge is needed.  
-  GCS FUSE (Filesystem in Userspace) is a feature provided by Cloud Run that mounts the GCS bucket. 
-  It makes the remote bucket contents appear as a local directory (e.g., /mnt/storage) inside the container.
-- The Python FastAPI application, running with Uvicorn, provides the necessary control flow to handle the FUSE delay.
-- The Dockerfile's CMD command starts the Uvicorn web server immediately. 
-  This allows the server to start listening on port 8080 right away, preventing the immediate "nothing listening" timeout.
-- The gcloud run deploy command starts the container and hits /ready. The /ready endpoint returns 503 until the FUSE mount is ready.
-- Once /ready returns 200 OK, Cloud Run considers the deployment healthy and proceeds with the application startup sequence, which includes calling the lifespan function.
-- The lifespan function executes, and initializes all your application components.
-- Only after the lifespan block successfully completes does the application truly yield, allowing the server to accept live user traffic.
+When Google Cloud Run decides to shut down the app instance (e.g., because no one has used it for 15 minutes, or you are deploying a new version), 
+it sends a SIGTERM signal.  The application stops accepting new connections and resumes the lifespan function after the yield statement.
 
 
+Overall Architecture Implemented for Cloud Run Deployment:
+
+- Persistent Storage via GCS FUSE:
+    The application utilizes Google Cloud Storage (GCS) for persistent file access. 
+    Since GCS is object storage, Cloud Run uses GCS FUSE (Filesystem in Userspace) to mount the bucket, 
+    making remote objects appear as local files in a directory (e.g., /mnt/storage).
+
+- Server Startup Sequence (Lifespan -> Yield -> Listen):
+    The Dockerfile CMD starts the Uvicorn web server. 
+    Uvicorn immediately executes the Lifespan Startup block (loading configurations and context) 
+    up to the yield statement. Once the yield is reached, Uvicorn opens port 8080 
+    and begins listening for HTTP requests.
+
+- Handling FUSE Latency via Startup Probe:
+    Google Cloud Run immediately begins polling the /ready endpoint to check if the instance is healthy.
+    Because the GCS FUSE mount occurs asynchronously and may take several seconds to appear, 
+    the /ready endpoint is designed to return 503 Service Unavailable if the mount is not yet detected. 
+    This prevents the application from accepting traffic before it can actually read or write files.
+
+- Traffic Routing:
+    The /ready endpoint returns 200 OK only after it confirms the FUSE mount exists and passes 
+    I/O validation tests. Once Cloud Run receives this 200 OK response, it considers 
+    the instance "Healthy" and begins routing actual user traffic to the /sse endpoint.
+
+    
 Google Cloud Run local, ephemeral /tmp directory:
-- The /tmp directory is ephemeral, meaning it does not persist across container lifetimes.
-- The /tmp directory is a tmpfs (temporary file system) that uses the container's allocated RAM, not separate disk space.
-  Therefore, the size of the files in /tmp directly counts against your Cloud Run instance's total memory limit.
-  If the total memory usage (App RAM + /tmp files) exceeds the container's memory limit, the container will be terminated with an Out-of-Memory error.
-  The maximum memory for a Cloud Run instance is 32 GiB.
-- Files in /tmp are not shared between different running container instances of your service.
-- While using /tmp is much faster than GCSFUSE, the I/O operations still consume your container's CPU and memory resources.
+
+- Non-persistent Storage: 
+    The /tmp directory is ephemeral and does not persist across container lifetimes or 
+    different running instances of your service.
+
+- Memory-Backed (tmpfs): 
+    The /tmp directory is a tmpfs (temporary file system) that resides in the container's 
+    allocated RAM, not on disk.
+
+- Memory Limits and OOM: 
+    Storage used in /tmp counts directly against your Cloud Run instance's memory limit. 
+    If combined usage (Application RAM + /tmp files) exceeds the limit, the container 
+    will be terminated with an Out-of-Memory (OOM) error.
+
+- High Performance: 
+    While /tmp is significantly faster than GCSFUSE, I/O operations still consume CPU 
+    and memory resources. The maximum memory limit for a Cloud Run instance is 32 GiB.
 
 
+    
 Docker Image RO Filesystem
 - Use the COPY ./data /app/data command in the Dockerfile.  That data file becomes part of the Read-Only layers of the Docker container image.
 - It is static.  It cannot be edited or deleted.  The only way to update it is to redeploy the Docker image.
-- It consumes storage with the constainer storage.  It does not consume the RAM allocated to the Cloud Run application like the ephemeral /tmp folder. 
+- It consumes storage with the constainer storage.  It does not consume the RAM allocated to the Cloud Run application like the ephemeral /tmp folder.
 - Docker usually grants read access by default, but if you run into "Permission Denied," add RUN chmod -R 755 /app/data to your Dockerfile after the COPY command.
-
 
 
 
@@ -66,11 +103,6 @@ Google Cloud Storage FUSE Mount:
 - Transient errors can occur during read/write operations, so applications should be designed to tolerate such errors.
 - Not suitable for workloads with frequent small file operations (under 50 MB), data-intensive training, or checkpoint/restart workloads during the I/O intensive phase.
 
-
-FastAPI is built on the OpenAPI (formerly Swagger) and JSON Schema standards, it generates interactive documentation automatically without you having to write any extra code.
-When the app is deployed to Google Cloud Run, these features will be available at specific sub-paths of the main URL.
-    Swagger UI (at /docs)
-    ReDoc (at /redoc)
 """
 
 # ----------------------------------------------------------------------
@@ -78,7 +110,7 @@ When the app is deployed to Google Cloud Run, these features will be available a
 
 from pathlib import Path
 #from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any, List
 import os
@@ -127,7 +159,7 @@ logger.info(f"'{Path(__file__).stem}.py' v{__version__}")
 # ----------------------------------------------------------------------
 # Constants
 
-DEBUG = True
+DEBUG = False
 
 # __file__ is /app/src/main.py
 # .parent is /app/src
@@ -271,6 +303,8 @@ async def lifespan(app: FastAPI):
     "lifespan" is executed every time a Cloud Run instance scales up.
     Google Cloud Run automatically adds instances based on demand.  
 
+    uvicorn (the web server) does not bind to the listening port (8080) until AFTER the lifespan startup logic completes (yield).
+
     This lifespan function checks for the presence of 'startup_probe.txt' in the GCS FUSE mount path.
     This file acts as a signal that the GCS bucket has been successfully mounted and is accessible.
     The 'startup_probe.txt' file MUST be created by the deployment process (e.g., Cloud Build, init container)
@@ -278,38 +312,27 @@ async def lifespan(app: FastAPI):
     """
 
     logger.info("Application lifespan startup sequence initiated.")
+
+    app.state.probe_succeeded = False
     
-    if gcp_json_credentials_exist():
-        # Anything here executes only in local development environment.
-        
+    # Define the Mount Path location
+    # During deployment, an environment variable MOUNT_PATH is created that points to the Cloud Storage FUSE bucket path.
+    mount_env = os.environ.get('MOUNT_PATH')
+    if mount_env:
+        # MOUNT_PATH environment variable exists because creating the Cloud Storage FUSE bucket is part of the deployment. 
+        path_bucket_mount = Path(mount_env)
+    elif os.environ.get("K_SERVICE"):
+        # Environment variable K_SERVICE is automatically injected by Cloud Run.
+        logger.warn("Environment variable MOUNT_PATH expected, but not found.  Defaulting to /mnt/storage")
+        path_bucket_mount = Path('/mnt/storage')
+    elif gcp_json_credentials_exist():
+        # Script is running locally (not in Cloud Run or a Docker container)
         path_bucket_mount = Path(Path.cwd())
-        # load_dotenv()
-        
     else:
-        # Anything here only executes in Cloud Run / VM / Docker container
-
-        path_bucket_mount = Path(os.environ.get('MOUNT_PATH', '/mnt/storage'))
-        path_file_startup_probe = path_bucket_mount.joinpath("startup_probe.txt")
-
-        # WAIT/CHECK FOR FUSE CONFIGURATION (Required for GCS FUSE latency)
-        max_checks = 10
-        check_period = 0.5  # seconds
-        
-        for i in range(max_checks):
-            if path_file_startup_probe.is_file():
-                logger.info("INFO: GCS FUSE mount confirmed ready.")
-                break
-            
-            # The startup_probe should handle the waiting, but this acts as a final guard
-            logger.warn(f"INFO: Waiting for FUSE mount in lifespan... Attempt {i+1}/{max_checks}")
-            await asyncio.sleep(check_period)
-        else:
-            logger.error("CRITICAL WARNING: FUSE file not found in lifespan after checks. Application may be misconfigured or the mount failed.")
-            # Application will proceed without the .env keys, likely leading to errors in the / or /api/* endpoints.
-
-    # -------------------------------------
-    # INITIALIZE DEPENDENT COMPONENTS HERE 
-    # -------------------------------------
+        # Possibly running in a Docker container ???
+        msg = f"Unexpected runtime environment found in lifespan(). MOUNT_PATH & K_SERVICE not found. Local ADC not found"
+        logger.error(msg)
+        raise Exception(msg)
 
     # Ensure all keys are initialized before use
     app.state.app_config = {
@@ -351,9 +374,6 @@ class CalculatorInput(BaseModel):
 # Path Operations (API Endpoints)
 
 
-# Use a simple flag to ensure the probe stops logging once successful
-probe_succeeded = False 
-
 @app.get("/healthz")
 def liveness_check():
     """
@@ -363,22 +383,21 @@ def liveness_check():
 
 
 @app.get("/readyz")
-def readiness_check():
+def readiness_check(request: Request):
     """Checks if the environment and storage are fully ready."""
-    if not probe_succeeded:
+    if not request.app.state.probe_succeeded:
         raise HTTPException(status_code=503, detail="Service initializing")
     return {"status": "ready"}
 
 
 @app.get("/ready")
-def startup_probe():
+def startup_probe(request: Request):
     """
     Cloud Run Startup Probe: Checks FUSE readiness.
     """
-    global probe_succeeded
-    
+
     # No need to check FUSE every time if we already passed.
-    if probe_succeeded:
+    if request.app.state.probe_succeeded:
         return {"status": "ok", "message": "FUSE mount and probe confirmed ready."}
 
     # Safely define paths
@@ -392,17 +411,19 @@ def startup_probe():
 
         # Verify bucket
         # Use path_bucket_mount directly here to avoid race conditions with app.state (app.state.app_config['bucket_mount_path'])
-        logger.info(f"Running I/O validation tests on: {path_bucket_mount}")
-        gcp_fileio_test(path_bucket_mount)
+        if DEBUG: 
+            logger.info(f"Running I/O validation tests on: {path_bucket_mount}")
+            gcp_fileio_test(path_bucket_mount)
 
         # Test Google Cloud Run in-memory temporary storage (local, ephemeral /tmp directory).
         path_gcp_tmp_ephemeral = Path("/tmp")
         if not path_gcp_tmp_ephemeral.is_dir(): path_gcp_tmp_ephemeral.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Running I/O validation tests on: {path_gcp_tmp_ephemeral}")
-        gcp_fileio_test(path_gcp_tmp_ephemeral)
+        if DEBUG: 
+            logger.info(f"Running I/O validation tests on: {path_gcp_tmp_ephemeral}")
+            gcp_fileio_test(path_gcp_tmp_ephemeral)
         
         logger.info("Startup probe and I/O tests succeeded.")
-        probe_succeeded = True
+        request.app.state.probe_succeeded = True
         return {"status": "ok", "message": "FUSE mount ready, application is starting up."}
     else:
         # FUSE mount is not ready yet. Return a 503 to fail the probe and retry.

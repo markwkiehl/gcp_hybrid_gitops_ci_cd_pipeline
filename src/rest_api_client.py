@@ -81,7 +81,7 @@ PATH_DATA = PATH_BASE / "data"
 
 # Configure the REST API server URL
 
-use_localhost = False
+use_localhost = True
 if use_localhost:
     # The base URL of the FastAPI server. 
     # This should match the host and port defined in rest_fastapi_server.py (0.0.0.0:8000).
