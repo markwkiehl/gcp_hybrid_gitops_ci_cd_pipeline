@@ -1,6 +1,6 @@
 @echo off
 cls
-echo %~n0%~x0   version 0.1.1
+echo %~n0%~x0   version 0.1.2
 echo.
 
 rem	v0.0.0	initial release
@@ -8,6 +8,7 @@ rem	v0.1.0	Revised to accommodate separate Python scripts (src) from Python virt
 rem			gcp_constants.bat renamed to gcp_constants.txt
 rem	v0.1.0	New Python project structure 13 Dec 2025
 rem v0.1.1	Removed unneeded constants referenced from gcp_constants.txt
+rem v0.1.2	Revised last echo
 
 
 rem Created by Mechatronic Solutions LLC
@@ -217,7 +218,7 @@ ENDLOCAL
 
 echo.
 echo This batch file %~n0%~x0 has ended normally (no errors).  
-echo You may continue with gcp_2_proj.bat
+echo Next, execute the Python script `gcp_generator.py` located in the /gcp folder.
 EXIT /B
 
 
