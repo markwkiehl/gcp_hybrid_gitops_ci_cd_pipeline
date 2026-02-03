@@ -174,7 +174,8 @@ app_config = {
     "llm_provider": "openai",                                           # The LLM provider we are using
     "embedding_model": "text-embedding-3-small",                        # The model for creating document embeddings
     "max_step_iterations": 3,                                           # The maximum number iterations per master plan step. 
-    "bucket_mount_path": None                                           # Google Storage bucket mount path
+    "bucket_mount_path": None,                                          # Google Storage bucket mount path
+    "path_gcp_tmp": None,                                               # Google Cloud Run ephemeral /tmp
 }
 # Note: after lifespan(), access 'app_config' this way:
 # print(f"bucket_mount_path: {app.state.app_config['bucket_mount_path']}")
@@ -292,6 +293,54 @@ def gcp_fileio_test(path_mount:Path, verbose:bool=False):
             if len(line.strip()) > 0: logger.info(f"{i}  {line.strip()}")        # .strip() removes \n
 
 
+def get_mount_path() -> Path:
+    """
+    Return a Path object to the Google Cloud storage bucket FUSE mount location if the app is running in Cloud Run.
+    """
+    path_bucket_mount = None
+    # Define the Mount Path location
+    # During deployment, an environment variable MOUNT_PATH is created that points to the Cloud Storage FUSE bucket path.
+    mount_env = os.environ.get('MOUNT_PATH')
+    if mount_env:
+        # MOUNT_PATH environment variable exists because creating the Cloud Storage FUSE bucket is part of the deployment. 
+        path_bucket_mount = Path(mount_env)
+    elif os.environ.get("K_SERVICE"):
+        # Environment variable K_SERVICE is automatically injected by Cloud Run.
+        logger.warn("Environment variable MOUNT_PATH expected, but not found.  Defaulting to /mnt/storage")
+        path_bucket_mount = Path('/mnt/storage')
+    elif gcp_json_credentials_exist():
+        # Script is running locally (not in Cloud Run or a Docker container)
+        path_bucket_mount = Path(Path.cwd())
+    else:
+        # Possibly running in a Docker container ???
+        msg = f"Unexpected runtime environment found in lifespan(). MOUNT_PATH & K_SERVICE not found. Local ADC not found"
+        logger.error(msg)
+        raise Exception(msg)
+
+    return path_bucket_mount
+
+
+def get_tmp_path() -> Path:
+    """
+    Return a Path object to the Google Cloud Run ephemeral /tmp folder.
+    """
+    path_gcp_tmp = None
+    if os.environ.get("K_SERVICE"):
+        # Environment variable K_SERVICE is automatically injected by Cloud Run.
+        path_gcp_tmp = Path("/tmp")
+    elif gcp_json_credentials_exist():
+        # Script is running locally (not in Cloud Run or a Docker container)
+        path_gcp_tmp = Path(Path.cwd())
+    else:
+        # Possibly running in a Docker container ???
+        msg = f"Unexpected runtime environment found in lifespan(). MOUNT_PATH & K_SERVICE not found. Local ADC not found"
+        logger.error(msg)
+        raise Exception(msg)
+
+    return path_gcp_tmp
+
+
+
 # ---------------------------------------------------------------------------
 # FastAPI Lifespan (Startup/Shutdown)
 
@@ -316,23 +365,10 @@ async def lifespan(app: FastAPI):
     app.state.probe_succeeded = False
     
     # Define the Mount Path location
-    # During deployment, an environment variable MOUNT_PATH is created that points to the Cloud Storage FUSE bucket path.
-    mount_env = os.environ.get('MOUNT_PATH')
-    if mount_env:
-        # MOUNT_PATH environment variable exists because creating the Cloud Storage FUSE bucket is part of the deployment. 
-        path_bucket_mount = Path(mount_env)
-    elif os.environ.get("K_SERVICE"):
-        # Environment variable K_SERVICE is automatically injected by Cloud Run.
-        logger.warn("Environment variable MOUNT_PATH expected, but not found.  Defaulting to /mnt/storage")
-        path_bucket_mount = Path('/mnt/storage')
-    elif gcp_json_credentials_exist():
-        # Script is running locally (not in Cloud Run or a Docker container)
-        path_bucket_mount = Path(Path.cwd())
-    else:
-        # Possibly running in a Docker container ???
-        msg = f"Unexpected runtime environment found in lifespan(). MOUNT_PATH & K_SERVICE not found. Local ADC not found"
-        logger.error(msg)
-        raise Exception(msg)
+    path_bucket_mount = get_mount_path()
+
+    # Get Cloud Run ephemeral /tmp folder
+    path_gcp_tmp = get_tmp_path()
 
     # Ensure all keys are initialized before use
     app.state.app_config = {
@@ -340,7 +376,17 @@ async def lifespan(app: FastAPI):
         "embedding_model": "text-embedding-3-small",
         "max_step_iterations": 3,
         "bucket_mount_path": path_bucket_mount,
+        "path_gcp_tmp": path_gcp_tmp,
     }
+
+    # Execute other initialization code here, before the yield statement. 
+    # Optional block of code
+    if os.environ.get("K_SERVICE"):
+        pass
+        # Environment variable K_SERVICE is automatically injected by Cloud Run.
+    else:
+        pass
+        # Local non-Cloud Run environment
 
     # Application endpoints are now ready to serve traffic.
     yield 
@@ -400,14 +446,15 @@ def startup_probe(request: Request):
     if request.app.state.probe_succeeded:
         return {"status": "ok", "message": "FUSE mount and probe confirmed ready."}
 
-    # Safely define paths
-    logger.info(f"os.environ.get('MOUNT_PATH'): {os.environ.get('MOUNT_PATH')}")
-    path_bucket_mount = Path(os.environ.get('MOUNT_PATH', '/mnt/storage'))
+    # Get the path to Google Cloud Storage bucket FUSE mount & the startup probe file.
+    path_bucket_mount = request.app.state.app_config['bucket_mount_path']
+    # Check if mount point exists (Fast check)
+    if not path_bucket_mount.exists():  raise HTTPException(status_code=503, detail="Waiting for GCS FUSE mount to stabilize.")
+    
     path_file_startup_probe = path_bucket_mount.joinpath("startup_probe.txt")
-
     if path_file_startup_probe.is_file():
         # FUSE mount is ready. Signal Cloud Run to send traffic.
-        logger.info(f"Startup probe succeeded. FUSE file found at: {path_file_startup_probe}. Starting Lifespan...")
+        logger.info(f"Startup probe succeeded. FUSE file found at: {path_file_startup_probe}.")
 
         # Verify bucket
         # Use path_bucket_mount directly here to avoid race conditions with app.state (app.state.app_config['bucket_mount_path'])
@@ -415,21 +462,22 @@ def startup_probe(request: Request):
             logger.info(f"Running I/O validation tests on: {path_bucket_mount}")
             gcp_fileio_test(path_bucket_mount)
 
-        # Test Google Cloud Run in-memory temporary storage (local, ephemeral /tmp directory).
-        path_gcp_tmp_ephemeral = Path("/tmp")
-        if not path_gcp_tmp_ephemeral.is_dir(): path_gcp_tmp_ephemeral.mkdir(parents=True, exist_ok=True)
-        if DEBUG: 
-            logger.info(f"Running I/O validation tests on: {path_gcp_tmp_ephemeral}")
-            gcp_fileio_test(path_gcp_tmp_ephemeral)
-        
-        logger.info("Startup probe and I/O tests succeeded.")
-        request.app.state.probe_succeeded = True
-        return {"status": "ok", "message": "FUSE mount ready, application is starting up."}
     else:
         # FUSE mount is not ready yet. Return a 503 to fail the probe and retry.
         logger.error(f"Startup probe and/or I/O tests failed!")
         raise HTTPException(status_code=503, detail="Waiting for GCS FUSE mount to stabilize.")
+
+    # Test Google Cloud Run in-memory temporary storage (local, ephemeral /tmp directory).
+    path_gcp_tmp = request.app.state.app_config['path_gcp_tmp']
+    if not path_gcp_tmp.is_dir(): path_gcp_tmp.mkdir(parents=True, exist_ok=True)
+    if DEBUG: 
+        logger.info(f"Running I/O validation tests on: {path_gcp_tmp}")
+        gcp_fileio_test(path_gcp_tmp)
     
+    logger.info("Startup probe and I/O tests succeeded.")
+    request.app.state.probe_succeeded = True
+    return {"status": "ok", "message": "FUSE mount ready, application is starting up."}
+
 
 @app.get("/")
 def read_root() -> Dict[str, str]:

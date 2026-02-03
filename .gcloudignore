@@ -15,3 +15,9 @@ terraform.tfstate*
 
 # Ignore local GCP automation scripts not needed for the build
 gcp/
+
+# Ignore an assets folder
+assets/
+assets
+
+opencode.json
