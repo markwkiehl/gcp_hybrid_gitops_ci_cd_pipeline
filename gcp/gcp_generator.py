@@ -6,7 +6,7 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 # v0.0.2    Several minor optimizations to gcp_bootstrap.bat
@@ -16,6 +16,7 @@ __version__ = "0.0.8"
 # v0.0.6    Added check that project GCP_BQ_PROJ_ID exists. 
 # v0.0.7    Commented out the expensive gloud run deploy options (they give lots of performance, but expensive!)
 # v0.0.8    Moved check for GCP_BQ_PROJ_ID after GCP_PROJ_ID has been created.
+# v0.0.9    Removed the lifecycle_rule that caused the startup_probe.txt to be deleted after one day. 
 
 import os
 from pathlib import Path
@@ -269,10 +270,6 @@ resource "google_storage_bucket" "app_bucket" {{
   name          = "{c['GCP_GS_BUCKET']}"
   location      = "{c['GCP_GS_BUCKET_LOCATION']}"
   force_destroy = true
-  lifecycle_rule {{
-    condition {{ age = 1 }}
-    action {{ type = "Delete" }}
-  }}
 }}
 
 resource "google_bigquery_dataset" "dataset" {{
