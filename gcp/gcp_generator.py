@@ -6,7 +6,7 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 # v0.0.2    Several minor optimizations to gcp_bootstrap.bat
@@ -16,7 +16,8 @@ __version__ = "0.0.9"
 # v0.0.6    Added check that project GCP_BQ_PROJ_ID exists. 
 # v0.0.7    Commented out the expensive gloud run deploy options (they give lots of performance, but expensive!)
 # v0.0.8    Moved check for GCP_BQ_PROJ_ID after GCP_PROJ_ID has been created.
-# v0.0.9    Removed the lifecycle_rule that caused the startup_probe.txt to be deleted after one day. 
+# v0.0.9    Removed the google_storage_bucket lifecycle_rule that caused the startup_probe.txt to be deleted after one day. 
+# v0.0.10   Grant API Keys Admin role to the service account so it can delete API Gateway keys
 
 import os
 from pathlib import Path
@@ -503,6 +504,13 @@ IF %ERRORLEVEL% NEQ 0 (
 
 :: Grant Cloud Run Developer role to the service account:
 CALL gcloud projects add-iam-policy-binding {c['GCP_PROJ_ID']} --member=serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com --role=roles/run.developer
+IF %ERRORLEVEL% NEQ 0 (
+    echo %ERRORLEVEL%
+    EXIT /B
+)
+
+:: Grant API Keys Admin role to the service account so it can delete API Gateway keys:
+CALL gcloud projects add-iam-policy-binding {c['GCP_PROJ_ID']} --member="serviceAccount:{c['GCP_SVC_ACT_PREFIX']}@{c['GCP_PROJ_ID']}.iam.gserviceaccount.com" --role="roles/serviceusage.apiKeysAdmin"
 IF %ERRORLEVEL% NEQ 0 (
     echo %ERRORLEVEL%
     EXIT /B
