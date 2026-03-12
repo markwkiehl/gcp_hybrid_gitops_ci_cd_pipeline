@@ -1,6 +1,12 @@
 @echo off
 cls
 
+REM Version 0.0.1
+REM
+REM v0.0.0	Initial release
+REM v0.0.1	Added option to take numerical argument that specifies the number of additional API keys to generate. 
+
+
 rem ---------------------------------------------------------------------
 rem --- IMPORT CONSTANTS ---
 rem ---------------------------------------------------------------------

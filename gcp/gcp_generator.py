@@ -306,6 +306,8 @@ steps:
 
   # Deploy to Cloud Run with a unique tag
   # Arguments for quick startup: --min-instances=1,--concurrency=2,--cpu=1,--memory=1Gi,--no-cpu-throttling
+  # Argument for full public access:  --allow-unauthenticated
+  # Argument for protection behind an API Gateway: --no-allow-unauthenticated
   # BUILD_ID is a built-in substitution variable provided automatically by Google Cloud Build.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
@@ -324,12 +326,7 @@ steps:
           --startup-probe httpGet.port=8080,httpGet.path=/ready,initialDelaySeconds=10,failureThreshold=15,periodSeconds=20,timeoutSeconds=5 \\
           --set-env-vars "MOUNT_PATH=${{_MOUNT_PATH}},DEPLOYED_VERSION={current_version},{env_string}" \\
           --platform managed \\
-          --allow-unauthenticated \\
-          #--min-instances=1 \\
-          #--concurrency=1 \\
-          #--cpu=2 \\
-          #--memory=2Gi \\
-          #--no-cpu-throttling \\
+          --allow-unauthenticated
           
 substitutions:
   _REGION: {c['GCP_REGION']}
