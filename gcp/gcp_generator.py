@@ -6,7 +6,7 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.10"
+__version__ = "0.0.11"
 # v0.0.0    14 Jan 2026
 # v0.0.1    Removed [cite: *] that AI added during audit. Revised path_file_py_script_for_cloud_run
 # v0.0.2    Several minor optimizations to gcp_bootstrap.bat
@@ -18,6 +18,7 @@ __version__ = "0.0.10"
 # v0.0.8    Moved check for GCP_BQ_PROJ_ID after GCP_PROJ_ID has been created.
 # v0.0.9    Removed the google_storage_bucket lifecycle_rule that caused the startup_probe.txt to be deleted after one day. 
 # v0.0.10   Grant API Keys Admin role to the service account so it can delete API Gateway keys
+# v0.0.11   Added display of the API Gateway URL
 
 import os
 from pathlib import Path
@@ -655,6 +656,10 @@ echo gcloud storage ls gs://{c['GCP_GS_BUCKET']}
 echo.
 echo Show environment variables available to the Cloud Run app
 echo gcloud run services describe {c['GCP_RUN_JOB']} --region={c['GCP_REGION']} --format="yaml(spec.template.spec.containers[0].env)"
+
+echo.
+echo Show the API Gateway URL
+echo gcloud run services describe {c['GCP_GATEWAY_ID']} --region={c['GCP_REGION']} --format="yaml(spec.template.spec.containers[0].env)"
 
 echo.
 echo How to copy file from /data to Storage Bucket
