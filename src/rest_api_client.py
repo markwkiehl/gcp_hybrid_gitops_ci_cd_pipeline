@@ -90,7 +90,6 @@ BASE_URL = "http://localhost:8000"
 # If you are a paid subscriber, update the BASE_URL and API_KEY below with those provide to you with your subscription:
 #API_KEY = "your-39-character-api-key-#############"
 #BASE_URL = "https://weatherforensics.dev/api/pro"
-#API_KEY = "AIzaSyB3b-GrcjZYNqnEsWSd3DM0od64h9DqoBU"
 
 if DEBUG: logger.info(f"BASE_URL: {BASE_URL}")
 if DEBUG: logger.info(f"API_KEY: {API_KEY}")
