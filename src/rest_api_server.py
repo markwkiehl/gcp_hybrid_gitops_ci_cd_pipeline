@@ -4,11 +4,9 @@
 #   http://www.savvysolutions.info/savvycodesolutions/
 
 
-# Define the script version in terms of Semantic Versioning (SemVer)
-# when Git or other versioning systems are not employed.
-__version__ = "0.0.0"
+__version__ = "0.0.1"
 # v0.0.0    Release 2 February 2026
-
+# v0.0.1    Revised with best practices from gcp_rest_api_noaa.
 
 """
 This is a template for a RESTful API server deployed to Google Cloud Run service.
@@ -118,6 +116,11 @@ import sys
 import time
 from contextlib import asynccontextmanager
 import asyncio
+import json
+import httpx
+from time import perf_counter
+
+
 
 # ---------------------------------------------------------------------------
 # Configure logging
@@ -161,6 +164,8 @@ logger.info(f"'{Path(__file__).stem}.py' v{__version__}")
 
 DEBUG = False
 
+t_boot = perf_counter()
+
 # __file__ is /app/src/main.py
 # .parent is /app/src
 # .parent.parent is /app
@@ -171,9 +176,6 @@ PATH_SRC = PATH_BASE / "src"
 PATH_DATA = PATH_BASE / "data"
 
 app_config = {
-    "llm_provider": "openai",                                           # The LLM provider we are using
-    "embedding_model": "text-embedding-3-small",                        # The model for creating document embeddings
-    "max_step_iterations": 3,                                           # The maximum number iterations per master plan step. 
     "bucket_mount_path": None,                                          # Google Storage bucket mount path
     "path_gcp_tmp": None,                                               # Google Cloud Run ephemeral /tmp
 }
@@ -372,14 +374,23 @@ async def lifespan(app: FastAPI):
 
     # Ensure all keys are initialized before use
     app.state.app_config = {
-        "llm_provider": "openai",
-        "embedding_model": "text-embedding-3-small",
-        "max_step_iterations": 3,
         "bucket_mount_path": path_bucket_mount,
         "path_gcp_tmp": path_gcp_tmp,
     }
 
+    # Inject GCP_PROJ_ID into the environment.
+    # Formerly used by noaa_ncei.py
+    #os.environ["GCP_PROJ_ID"] = app.state.app_config['gcp_proj_id']
+
+    # Initialize the global httpx AsyncClient
+    # A 120-second timeout accommodates the occasional slow NOAA response
+    timeout_config = httpx.Timeout(120.0)
+    # Store the client in app.state so all route handlers can access the same connection pool
+    app.state.http_client = httpx.AsyncClient(timeout=timeout_config, follow_redirects=True)
+    logger.info("httpx.AsyncClient initialized.")
+
     # Execute other initialization code here, before the yield statement. 
+
     # Optional block of code
     if os.environ.get("K_SERVICE"):
         pass
@@ -388,11 +399,17 @@ async def lifespan(app: FastAPI):
         pass
         # Local non-Cloud Run environment
 
+    logger.info(f"lifecycle took {round(perf_counter()-t_boot,1)} s")
+
     # Application endpoints are now ready to serve traffic.
     yield 
 
     # 4. SHUTDOWN LOGIC (runs when server is shutting down)
     logger.info("Application shutdown sequence initiated.")
+
+    # Cleanly close the connection pool to prevent resource leaks
+    await app.state.http_client.aclose()
+    logger.info("httpx.AsyncClient closed.")
 
  
 # FastAPI Application Initialization
@@ -401,11 +418,17 @@ async def lifespan(app: FastAPI):
 # any REST API server.
 app = FastAPI(
     title="Simple REST API Server",
-    description="A basic REST API server template ready to be extended for your project needs.  It includes access to a Google Cloud Storage bucket. ",
+    description="""
+    A basic REST API server template ready to be extended for your project needs.  
+    It includes access to a Google Cloud Storage bucket. 
+    """,
     version=f"{__version__}",
+    contact={
+            "name": "Mark W Kiehl",
+            "url": "http://mechatronicsolutionsllc.com/",
+        },
     lifespan=lifespan,       # Attach the lifespan handler
 )
-
 
 # ----------------------------------------------------------------------
 # Pydantic Models for Data Validation
@@ -416,8 +439,19 @@ class CalculatorInput(BaseModel):
     operation: str = "add"
 
 
+class ExtApiInput(BaseModel):
+    url: str
+
 # ----------------------------------------------------------------------
 # Path Operations (API Endpoints)
+
+# An important note about the endpoints:
+# Do not prefix the 'def' with 'async' when calling synchronous, long-running functions.  
+# When a synchronous function takes 70+ seconds inside an async def route, it entirely blocks the FastAPI event loop. 
+# No other users can connect to the application during that time.
+
+# With the prefix 'async' before 'def' removed, FastAPI will automatically detect this and run the blocking function in a separate background threadpool, 
+# keeping the server responsive.
 
 
 @app.get("/healthz")
@@ -473,7 +507,7 @@ def startup_probe(request: Request):
     if DEBUG: 
         logger.info(f"Running I/O validation tests on: {path_gcp_tmp}")
         gcp_fileio_test(path_gcp_tmp)
-    
+
     logger.info("Startup probe and I/O tests succeeded.")
     request.app.state.probe_succeeded = True
     return {"status": "ok", "message": "FUSE mount ready, application is starting up."}
@@ -502,6 +536,7 @@ def read_root() -> Dict[str, str]:
     return {"status": "ok", "message": "Server is running. See /docs for API schema."}
 
 
+
 @app.post("/api/calculator")
 async def calculate(data: CalculatorInput):
     """
@@ -522,6 +557,134 @@ async def calculate(data: CalculatorInput):
     return {"result": result, "message": message}
 
 
+import random
+from http import HTTPStatus
+
+async def savvy_request_get_async(
+    url: str, 
+    client: httpx.AsyncClient, 
+    params: dict = None, 
+    retries: int = 3, 
+    headers: dict = None, 
+    verbose: bool = False
+):
+    """
+    Asynchronous version of savvy_request_get.
+    Makes a GET request with retries on certain HTTP errors (e.g., 503) or connection issues,
+    using a randomized backoff to avoid server overload.
+
+    Returns the response object from a HTTP GET to 'url' of up to 'retries' attempts for HTTP response codes 429,500-504.
+    Returns None for other errors. 
+    """
+    if url is None:
+        raise ValueError("Argument 'url' not passed to function")
+
+    retry_codes = [
+        HTTPStatus.TOO_MANY_REQUESTS,       # 429
+        HTTPStatus.INTERNAL_SERVER_ERROR,   # 500
+        HTTPStatus.BAD_GATEWAY,             # 502
+        HTTPStatus.SERVICE_UNAVAILABLE,     # 503
+        HTTPStatus.GATEWAY_TIMEOUT,         # 504
+    ]
+
+    for attempt in range(1, retries + 1):
+        if attempt > 1: verbose = True
+        try:
+            # The timeout duration is handled by the client configuration passed in from lifespan
+            response = await client.get(url=url, params=params, headers=headers)
+            
+            # Show any 301 redirects
+            if response.history: 
+                if not response.history[0].url == response.url:
+                    logger.warning(100*"-")
+                    logger.warning(f"URL redirected!")
+                    logger.warning(f"{response.history[0].url} -> {response.url}")
+                    logger.warning(100*"-")
+                #logger.info(f"Original URL: {response.history[0].url}")
+                #logger.info(f"Final URL: {response.url}")
+            # -----------------------------------
+
+            response.raise_for_status()
+            return response  # Success
+            
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            if code in retry_codes:
+                jitter = random.uniform(0, 2)
+                wait_time = attempt * 3 + jitter
+                if verbose:
+                    logger.warning(f"HTTP {code} on attempt {attempt}/{retries}. Retrying in {wait_time:.2f}s...")
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                # Note: httpx uses .reason_phrase instead of .reason
+                logger.error(f"HTTP Error {code}: {e.response.reason_phrase}")
+                return None
+                
+        except httpx.RequestError as e:
+            # Catches network-level errors and httpx.TimeoutException
+            jitter = random.uniform(0, 2)
+            wait_time = attempt * 3 + jitter
+            if verbose:
+                logger.warning(f"Request exception on attempt {attempt}/{retries}: {e}. Retrying in {wait_time:.2f}s...")
+            await asyncio.sleep(wait_time)
+            continue
+
+    if verbose:
+        logger.error(f"Failed to get a successful response after {retries} attempts.")
+    return None
+
+
+async def ex_savvy_request_get_async(url: str, client: httpx.AsyncClient, verbose: bool = False):
+    
+    headers = None
+    try:
+        # Pass verbose down to the retry handler
+        req = await savvy_request_get_async(url=url, client=client, headers=headers, verbose=verbose)
+    except Exception as e:
+        logger.error(f"Exception in ex_savvy_request_get_async() for url {url}: {repr(e)}")
+        return None
+    
+    if req is None:
+        logger.warning(f"Request failed and returned None for url: {url}")
+        return None
+
+    # Protect against successful HTTP requests that return non-JSON bodies
+    try:
+        return req.json()
+    except Exception as e:
+        logger.error(f"JSON decode error for url {url}: {repr(e)}")
+        return None
+
+@app.post("/api/ext_api_call")
+async def do_ext_api_call(request: Request, input_data: ExtApiInput) -> dict:
+    """
+    Simulate a simple external API call
+    """
+
+    t_start = perf_counter()
+
+                           
+    msg = f"ext_api_call"
+
+    # Extract the global client from app.state
+    http_client = request.app.state.http_client
+    
+    # Await the async data layer function and pass the client AND the missing url
+    result = await ex_savvy_request_get_async(url=input_data.url, client=http_client, verbose=False)
+
+    if result is None:
+        return {"result": "ERROR", "message": "An error occurred contacting the API"}
+
+    print(f"result:\n{result}")
+
+    logger.info(f"/api/ext_api_call took {round(perf_counter()-t_start,1)} s")
+
+    return {"result": result, "message": msg}
+
+
+
+
 if __name__ == "__main__":
     pass
 
@@ -538,5 +701,5 @@ if __name__ == "__main__":
         # 1) Open a Windows command (cmd) window.
         # 2) Navigate to the project folder and activate the Python virtual environment with: .venv/scripts/activate
         # 3) Navigate to the same folder as where this script resides (cd /src).
-        # 4) Execute the following:  uvicorn rest_api_server:app --reload
+        # 4) Execute the following:  uvicorn rest_api_noaa_server:app --reload
 

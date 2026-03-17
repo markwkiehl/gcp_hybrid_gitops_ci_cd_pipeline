@@ -6,8 +6,9 @@
 
 # Define the script version in terms of Semantic Versioning (SemVer)
 # when Git or other versioning systems are not employed.
-__version__ = "0.0.0"
-
+__version__ = "0.0.1"
+# v0.0.0    initial release
+# v0.0.1    
 
 """
 
@@ -27,6 +28,7 @@ from pathlib import Path
 import httpx
 import asyncio
 import sys
+import json
 
 
 # ---------------------------------------------------------------------------
@@ -81,19 +83,53 @@ PATH_DATA = PATH_BASE / "data"
 
 # Configure the REST API server URL
 
-use_localhost = False
-if use_localhost:
-    # The base URL of the FastAPI server. 
-    # This should match the host and port defined in rest_fastapi_server.py (0.0.0.0:8000).
-    BASE_URL = "http://localhost:8000"
-else:
-    # Google Cloud Platform GCP Cloud Run  
-    # Update BASE_URL below with the URL reported after running "gcp_bootstrap.bat"). 
-    BASE_URL = "https://ci-cd-pipeline-##########-uk.a.run.app"
+API_KEY = None
+
+BASE_URL = "http://localhost:8000"
+
+# If you are a paid subscriber, update the BASE_URL and API_KEY below with those provide to you with your subscription:
+#API_KEY = "your-39-character-api-key-#############"
+#BASE_URL = "https://weatherforensics.dev/api/pro"
+#API_KEY = "AIzaSyB3b-GrcjZYNqnEsWSd3DM0od64h9DqoBU"
+
 if DEBUG: logger.info(f"BASE_URL: {BASE_URL}")
+if DEBUG: logger.info(f"API_KEY: {API_KEY}")
 
 
-async def get_server_status(client: httpx.AsyncClient) -> bool:
+
+def decode_nested_json(data):
+    """Recursively parses stringified JSON inside dictionaries or lists.
+    
+    Usage:
+
+        # Parse the outer layer
+        initial_dict = json.loads(json_str)
+        # Decode any hidden JSON strings inside
+        fully_decoded_dict = decode_nested_json(initial_dict)
+        # Print beautifully
+        print(json.dumps(fully_decoded_dict, indent=4))
+
+    
+    """
+    if isinstance(data, str):
+        try:
+            parsed = json.loads(data)
+            # If the decoded string is another dict or list, keep digging
+            if isinstance(parsed, (dict, list)):
+                return decode_nested_json(parsed)
+            return parsed
+        except (json.JSONDecodeError, TypeError):
+            # It's just a normal string, leave it alone
+            return data
+    elif isinstance(data, dict):
+        return {k: decode_nested_json(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [decode_nested_json(item) for item in data]
+    else:
+        return data
+
+
+async def get_server_status(client: httpx.AsyncClient, verbose:bool=False) -> bool:
     """
     Checks the server status using a shared client. 
     Returns True if the server responds successfully, False otherwise.
@@ -137,19 +173,52 @@ async def run_calculator_tool(client: httpx.AsyncClient, num1: float, num2: floa
         logger.error(f"ERROR: Failed to execute tool call. Details: {e}")
 
 
+async def run_ext_api_call(client: httpx.AsyncClient, api_url: str = "add"):
+    """
+    Executes the calculator tool using a shared client.
+    """
+    logger.info(f"--- Executing Tool: {api_url} ---")
+    
+    url = f"{BASE_URL}/api/ext_api_call"
+    payload = {
+        "url": api_url,
+    }
+
+    try:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        result_data = response.json()
+        
+        logger.info(f"Output Message: {result_data.get('message')}")
+        logger.info(f"Output Result: {result_data.get('result')}")
+        logger.info("-" * 20)
+    except Exception as e:
+        logger.error(f"ERROR: Failed to execute tool call. Details: {e}")
+
+
+
 
 async def main():
-    # Initialize the client once to enable connection pooling
-    async with httpx.AsyncClient() as client:
+    # Initialize the client once to enable connection pooling.
+    # Inject the API key as a global query parameter for all requests.
+    # Follow any redirects.
+    async with httpx.AsyncClient(timeout=360.0, params={"key": API_KEY}, follow_redirects=True) as client:
         # Pass the shared client to all functions
 
         # Check if the REST API server is up
-        server_online = await get_server_status(client)
-        if not server_online: return None
+        server_online = await get_server_status(client, verbose=False)
+        if server_online: 
+            logger.info(f"The server is ONLINE  {BASE_URL}")
+        else:
+            raise Exception(f"The REST API server is offline!  {BASE_URL}")
         
         # Test run_calculator_tool()
         await run_calculator_tool(client, 5.5, 10.2, "add")
-        await run_calculator_tool(client, 10, 3, "multiply")
+        #await run_calculator_tool(client, 10, 3, "multiply")
+
+        # Test run_ext_api_call
+        await run_ext_api_call(client, "https://httpbin.org/json")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
