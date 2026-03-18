@@ -7,6 +7,10 @@ rem Mark W Kiehl
 rem
 rem LICENSE: MIT
 
+rem Version 0.0.1
+rem v0.0.0	initial release
+rem v0.0.1	Revise CALL gcloud alpha firestore databases create
+
 
 rem Batch files: https://steve-jansen.github.io/guides/windows-batch-scripting/
 rem Batch files: https://tutorialreference.com/batch-scripting/batch-script-tutorial
@@ -111,7 +115,7 @@ IF %ERRORLEVEL% == 0 (
 
 rem Provision the default Firestore Native database in the region %GCP_REGION%
 @echo on
-CALL gcloud alpha firestore databases create --database="(default)" --location="%GCP_REGION%" --project="mcp-noaa-v0-3"
+CALL gcloud alpha firestore databases create --database="(default)" --location="%GCP_REGION%" --project="%GCP_PROJ_ID%"
 @echo off
 IF %ERRORLEVEL% NEQ 0 (
 	echo ERROR %ERRORLEVEL%
